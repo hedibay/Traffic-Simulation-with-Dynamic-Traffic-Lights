@@ -1,0 +1,8 @@
+# depslib dependency file v1.0
+1733257238 source:c:\hedi\c\projet_cpartie2\main.c
+	<stdio.h>
+	<stdlib.h>
+	<time.h>
+	<unistd.h>
+	<pthread.h>
+
