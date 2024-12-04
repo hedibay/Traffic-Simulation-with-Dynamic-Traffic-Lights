@@ -6,3 +6,10 @@
 	<unistd.h>
 	<pthread.h>
 
+1733309616 source:c:\hedi\c\projet_cpartie2\traffic-simulation-with-dynamic-traffic-lights\main.c
+	<stdio.h>
+	<stdlib.h>
+	<time.h>
+	<unistd.h>
+	<pthread.h>
+

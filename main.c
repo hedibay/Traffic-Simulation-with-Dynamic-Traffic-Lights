@@ -69,85 +69,69 @@ void *gestion_feu(void *arg) {
     return NULL;
 }
 
+void deplacer_vehicule(char grille[][MAX_HAUTEUR], int largeur, int hauteur, Vehicule *vehicule, Feu *feux, int nb_feux, pthread_mutex_t *grille_mutex) {
+    if (!vehicule->actif) return;
 
-// Fonction pour déplacer les véhicules avec un mutex
-void *deplacer_vehicule(void *arg) {
-    Vehicule *vehicule = (Vehicule *)arg;
+    int next_x = vehicule->x + vehicule->dx;
+    int next_y = vehicule->y + vehicule->dy;
 
-    while (vehicule->actif) {
-        // Verrouiller la grille pour modifier la position du véhicule
-        pthread_mutex_lock(&grille_mutex);
-
-        if (vehicule->dx != 0) {
-            grille[vehicule->y][vehicule->x] = '-';
-            vehicule->x += vehicule->dx;
+    int stop = 0;
+    for (int j = 0; j < nb_feux; j++) {
+        if ((next_x-1 == feux[j].rouge_x && next_y-1 == feux[j].rouge_y && feux[j].etat == 'R') ||
+            (next_x == feux[j].vert_x && next_y == feux[j].vert_y && feux[j].etat == 'R')) {
+            stop = 1;
+            break;
         }
-        if (vehicule->dy != 0) {
-            grille[vehicule->y][vehicule->x] = '|';
-            vehicule->y += vehicule->dy;
-        }
-
-        // Vérifier si le véhicule sort de la grille
-        if (vehicule->x < 0 || vehicule->x >= MAX_LARGEUR || vehicule->y < 0 || vehicule->y >= MAX_HAUTEUR) {
-            vehicule->actif = 0; // Inactif si le véhicule est hors de la grille
-        } else {
-            // Mettre à jour la grille si le véhicule est encore dans la grille
-            grille[vehicule->y][vehicule->x] = '*';
-        }
-
-        // Déverrouiller la grille après modification
-        pthread_mutex_unlock(&grille_mutex);
-
-        //afficher_grille(grille, MAX_LARGEUR, MAX_HAUTEUR);
-      //  afficher_grille(grille, MAX_LARGEUR, MAX_HAUTEUR);
-        // Attendre un court délai pour le mouvement suivant
-        usleep(100000); // Délai pour simuler le mouvement du véhicule
     }
 
-    return NULL;
+    pthread_mutex_lock(grille_mutex);
+    if (!stop) {
+        // Déplacer le véhicule
+        grille[vehicule->y][vehicule->x] = (vehicule->dy != 0) ? '|' : '-';
+        vehicule->x = next_x;
+        vehicule->y = next_y;
+        grille[vehicule->y][vehicule->x] = '*';
+    }
+    pthread_mutex_unlock(grille_mutex);
 }
 
 
 
 
-// Fonction pour générer la grille avec les routes, feux et véhicules
-void generer_grille(int largeur, int hauteur, int nb_vehicules, int route_verticale, int route_horizontale) {
-    Vehicule vehicules[nb_vehicules];
-    pthread_t threads_feux[route_verticale * route_horizontale];
-    pthread_t threads_vehicules[nb_vehicules];
-    Feu feux[route_verticale * route_horizontale];
 
-    int positions_verticales[route_verticale];
-    int positions_horizontales[route_horizontale];
-
-    pthread_mutex_t grille_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-    // Initialiser la grille avec des espaces
+// Fonction pour initialiser la grille avec des espaces
+void initialiser_grille(char grille[][MAX_LARGEUR], int largeur, int hauteur) {
     for (int i = 0; i < hauteur; i++) {
         for (int j = 0; j < largeur; j++) {
             grille[i][j] = ' ';
         }
     }
+}
 
-    // Dessiner les routes verticales
+// Fonction pour dessiner les routes verticales et enregistrer leurs positions
+void dessiner_routes_verticales(char grille[][MAX_LARGEUR], int largeur, int hauteur, int route_verticale, int positions_verticales[]) {
     for (int i = 0; i < route_verticale; i++) {
         positions_verticales[i] = (i + 1) * (largeur / (route_verticale + 1));
         for (int j = 0; j < hauteur; j++) {
             grille[j][positions_verticales[i]] = '|';
         }
     }
+}
 
-    // Dessiner les routes horizontales
+// Fonction pour dessiner les routes horizontales et enregistrer leurs positions
+void dessiner_routes_horizontales(char grille[][MAX_LARGEUR], int largeur, int hauteur, int route_horizontale, int positions_horizontales[]) {
     for (int i = 0; i < route_horizontale; i++) {
         positions_horizontales[i] = (i + 1) * (hauteur / (route_horizontale + 1));
         for (int j = 0; j < largeur; j++) {
             grille[positions_horizontales[i]][j] = '-';
         }
     }
+}
 
-    // Ajouter les feux de signalisation et démarrer les threads
+// Fonction pour initialiser les feux de signalisation et démarrer les threads
+int initialiser_feux(Feu feux[], int route_verticale, int route_horizontale, int positions_verticales[], int positions_horizontales[], pthread_t threads_feux[]) {
     int index = 0;
-    srand(time(NULL)); // Initialiser la graine du générateur aléatoire
+    srand(time(NULL));
     for (int i = 0; i < route_horizontale; i++) {
         for (int j = 0; j < route_verticale; j++) {
             int rouge_x = positions_verticales[j] - 1;
@@ -155,30 +139,29 @@ void generer_grille(int largeur, int hauteur, int nb_vehicules, int route_vertic
             int vert_x = positions_verticales[j] + 1;
             int vert_y = positions_horizontales[i] + 1;
 
-            char etat_initial = (rand() % 2 == 0) ? 'R' : 'V'; // Choisir un état aléatoire (R ou V)
+            char etat_initial = (rand() % 2 == 0) ? 'R' : 'V';
             feux[index] = (Feu){rouge_x, rouge_y, vert_x, vert_y, etat_initial, PTHREAD_MUTEX_INITIALIZER};
 
-            // Créer un thread pour le feu
             pthread_create(&threads_feux[index], NULL, gestion_feu, &feux[index]);
             index++;
         }
     }
+    return index;
+}
 
-    // Créer les véhicules
+// Fonction pour initialiser les véhicules sur les routes
+void initialiser_vehicules(char grille[][MAX_LARGEUR], int largeur, int hauteur, int nb_vehicules, int route_verticale, int route_horizontale, int positions_verticales[], int positions_horizontales[], Vehicule vehicules[]) {
     for (int i = 0; i < nb_vehicules; i++) {
         int x, y, dx, dy;
 
-        // Boucle pour trouver une position valide pour chaque véhicule
         do {
             if (rand() % 2 == 0) {
-                // Route verticale
                 int colonne_verticale = positions_verticales[rand() % route_verticale];
                 x = colonne_verticale;
                 y = rand() % hauteur;
                 dx = 0;
                 dy = (rand() % 2 == 0) ? 1 : -1;
             } else {
-                // Route horizontale
                 int ligne_horizontale = positions_horizontales[rand() % route_horizontale];
                 x = rand() % largeur;
                 y = ligne_horizontale;
@@ -187,71 +170,69 @@ void generer_grille(int largeur, int hauteur, int nb_vehicules, int route_vertic
             }
         } while (grille[y][x] != '-' && grille[y][x] != '|');
 
-        // Initialiser le véhicule
         vehicules[i] = (Vehicule){x, y, dx, dy, 1, PTHREAD_MUTEX_INITIALIZER};
 
-        // Placer le véhicule sur la grille
         pthread_mutex_lock(&grille_mutex);
         grille[y][x] = '*';
         pthread_mutex_unlock(&grille_mutex);
     }
+}
 
-    // Boucle principale de gestion de la grille
-    while (1) {
+// Fonction pour gérer la simulation principale
+void simulation_principale(char grille[][MAX_LARGEUR], int largeur, int hauteur, int nb_vehicules, Vehicule vehicules[], Feu feux[], int nb_feux) {
+    int vehicules_actifs = nb_vehicules;
+
+    while (vehicules_actifs > 0) {
         pthread_mutex_lock(&grille_mutex);
 
-        // Mettre à jour les feux dans la grille
-        for (int i = 0; i < index; i++) {
+        // Mettre à jour les feux
+        for (int i = 0; i < nb_feux; i++) {
             grille[feux[i].rouge_y][feux[i].rouge_x] = (feux[i].etat == 'R') ? 'R' : ' ';
             grille[feux[i].vert_y][feux[i].vert_x] = (feux[i].etat == 'V') ? 'V' : ' ';
         }
 
-        // Déplacer les véhicules ou les arrêter au feu rouge
-        int vehicules_actifs = 0; // Compteur des véhicules actifs
+        pthread_mutex_unlock(&grille_mutex);
+
+        // Déplacer les véhicules
+        vehicules_actifs = 0; // Réinitialiser le compteur
         for (int i = 0; i < nb_vehicules; i++) {
-            if (!vehicules[i].actif) continue;
+            if (vehicules[i].actif) {
+                deplacer_vehicule(grille, largeur, hauteur, &vehicules[i], feux, nb_feux, &grille_mutex);
 
-
-
-            int next_x = vehicules[i].x + vehicules[i].dx;
-            int next_y = vehicules[i].y + vehicules[i].dy;
-
-            int stop = 0;
-            for (int j = 0; j < index; j++) {
-                if ((next_x -1== feux[j].rouge_x && next_y -1== feux[j].rouge_y && feux[j].etat == 'R') ||
-                    (next_x == feux[j].vert_x && next_y == feux[j].vert_y && feux[j].etat == 'R')) {
-                    stop = 1;
-                    break;
+                // Vérifier si le véhicule est sorti de la grille
+                if (vehicules[i].x < 0 || vehicules[i].x >= largeur || vehicules[i].y < 0 || vehicules[i].y >= hauteur) {
+                    vehicules[i].actif = 0;
+                } else {
+                    vehicules_actifs++;
                 }
-            }
-
-            if (!stop) {
-                // Déplacer le véhicule
-                grille[vehicules[i].y][vehicules[i].x] = (vehicules[i].dy != 0) ? '|' : '-';
-                vehicules[i].x = next_x;
-                vehicules[i].y = next_y;
-                grille[vehicules[i].y][vehicules[i].x] = '*';
             }
         }
 
-        pthread_mutex_unlock(&grille_mutex);
-
-        // Afficher la grille
         afficher_grille(grille, largeur, hauteur);
-
-        // Si aucun véhicule n'est actif, quitter la boucle
-    /*    if (vehicules_actifs == nb_vehicules) {
-            break;
-        }*/
-
-        // Attendre avant la prochaine mise à jour
         usleep(DELAI);
     }
-
-    // Nettoyage
-    pthread_mutex_destroy(&grille_mutex);
 }
 
+// Fonction principale
+void generer_grille(int largeur, int hauteur, int nb_vehicules, int route_verticale, int route_horizontale) {
+    Vehicule vehicules[nb_vehicules];
+    pthread_t threads_feux[route_verticale * route_horizontale];
+    Feu feux[route_verticale * route_horizontale];
+
+    int positions_verticales[route_verticale];
+    int positions_horizontales[route_horizontale];
+
+    initialiser_grille(grille, largeur, hauteur);
+    dessiner_routes_verticales(grille, largeur, hauteur, route_verticale, positions_verticales);
+    dessiner_routes_horizontales(grille, largeur, hauteur, route_horizontale, positions_horizontales);
+
+    int nb_feux = initialiser_feux(feux, route_verticale, route_horizontale, positions_verticales, positions_horizontales, threads_feux);
+    initialiser_vehicules(grille, largeur, hauteur, nb_vehicules, route_verticale, route_horizontale, positions_verticales, positions_horizontales, vehicules);
+
+    simulation_principale(grille, largeur, hauteur, nb_vehicules, vehicules, feux, nb_feux);
+
+    pthread_mutex_destroy(&grille_mutex);
+}
 
 
 
