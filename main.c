@@ -77,13 +77,21 @@ void deplacer_vehicule(char grille[][MAX_HAUTEUR], int largeur, int hauteur, Veh
 
     int stop = 0;
     for (int j = 0; j < nb_feux; j++) {
-        if ((next_x-1 == feux[j].rouge_x && next_y-1 == feux[j].rouge_y && feux[j].etat == 'R') ||
-            (next_x == feux[j].vert_x && next_y == feux[j].vert_y && feux[j].etat == 'R')) {
+            if (vehicule->dy!=0){
+        if (next_x-1 == feux[j].rouge_x && next_y-1 == feux[j].rouge_y && feux[j].etat == 'V')  {
             stop = 1;
             break;
         }
     }
-
+    else {if (next_x-1 == feux[j].rouge_x && next_y-1 == feux[j].rouge_y && feux[j].etat == 'R')  {
+            stop = 1;
+            break;
+        }}}
+    pthread_mutex_lock(grille_mutex); // Accès sécurisé à la grille
+    if (grille[next_y][next_x] == '*') { // Si une voiture est devant
+        stop = 1;
+    }
+    pthread_mutex_unlock(grille_mutex);
     pthread_mutex_lock(grille_mutex);
     if (!stop) {
         // Déplacer le véhicule
@@ -133,21 +141,28 @@ int initialiser_feux(Feu feux[], int route_verticale, int route_horizontale, int
     int index = 0;
     srand(time(NULL));
     for (int i = 0; i < route_horizontale; i++) {
+
         for (int j = 0; j < route_verticale; j++) {
+
             int rouge_x = positions_verticales[j] - 1;
             int rouge_y = positions_horizontales[i] - 1;
             int vert_x = positions_verticales[j] + 1;
             int vert_y = positions_horizontales[i] + 1;
 
-            char etat_initial = (rand() % 2 == 0) ? 'R' : 'V';
-            feux[index] = (Feu){rouge_x, rouge_y, vert_x, vert_y, etat_initial, PTHREAD_MUTEX_INITIALIZER};
+            char etat_initial_rouge = (rand() % 2 == 0) ? 'R' : 'V' ;// Alterner les feux
+           // char etat_initial_vert = (etat_initial_rouge == 'R') ? 'V' : 'R';
+            feux[index] = (Feu){rouge_x, rouge_y, vert_x, vert_y, etat_initial_rouge, PTHREAD_MUTEX_INITIALIZER};
+           // feux[index + 1] = (Feu){rouge_x , rouge_y, vert_x , vert_y, etat_initial_vert, PTHREAD_MUTEX_INITIALIZER};
+
 
             pthread_create(&threads_feux[index], NULL, gestion_feu, &feux[index]);
+
             index++;
         }
     }
     return index;
 }
+
 
 // Fonction pour initialiser les véhicules sur les routes
 void initialiser_vehicules(char grille[][MAX_LARGEUR], int largeur, int hauteur, int nb_vehicules, int route_verticale, int route_horizontale, int positions_verticales[], int positions_horizontales[], Vehicule vehicules[]) {
@@ -160,12 +175,12 @@ void initialiser_vehicules(char grille[][MAX_LARGEUR], int largeur, int hauteur,
                 x = colonne_verticale;
                 y = rand() % hauteur;
                 dx = 0;
-                dy = (rand() % 2 == 0) ? 1 : -1;
+                dy = -1;
             } else {
                 int ligne_horizontale = positions_horizontales[rand() % route_horizontale];
                 x = rand() % largeur;
                 y = ligne_horizontale;
-                dx = (rand() % 2 == 0) ? 1 : -1;
+                dx =+1;
                 dy = 0;
             }
         } while (grille[y][x] != '-' && grille[y][x] != '|');
@@ -178,20 +193,20 @@ void initialiser_vehicules(char grille[][MAX_LARGEUR], int largeur, int hauteur,
     }
 }
 
+
+
 // Fonction pour gérer la simulation principale
 void simulation_principale(char grille[][MAX_LARGEUR], int largeur, int hauteur, int nb_vehicules, Vehicule vehicules[], Feu feux[], int nb_feux) {
     int vehicules_actifs = nb_vehicules;
 
     while (vehicules_actifs > 0) {
         pthread_mutex_lock(&grille_mutex);
+for (int i = 0; i < nb_feux; i += 1) { // Parcourir les feux par paires
+    grille[feux[i].rouge_y][feux[i].rouge_x] = feux[i].etat;
+    grille[feux[i].vert_y][feux[i].vert_x] = (feux[i].etat == 'R') ? 'V' : 'R';
+}
+pthread_mutex_unlock(&grille_mutex);
 
-        // Mettre à jour les feux
-        for (int i = 0; i < nb_feux; i++) {
-            grille[feux[i].rouge_y][feux[i].rouge_x] = (feux[i].etat == 'R') ? 'R' : ' ';
-            grille[feux[i].vert_y][feux[i].vert_x] = (feux[i].etat == 'V') ? 'V' : ' ';
-        }
-
-        pthread_mutex_unlock(&grille_mutex);
 
         // Déplacer les véhicules
         vehicules_actifs = 0; // Réinitialiser le compteur
